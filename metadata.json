@@ -1,0 +1,6 @@
+{
+  "name": "Arushi",
+  "description": "Universal Multi-Task AI Assistant & Autonomous Agent Engine with Voice and Real Task Execution",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
