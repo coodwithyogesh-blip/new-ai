@@ -77,13 +77,61 @@ class JarvisEngine(private val c:Context) {
   } catch(e:Exception) { "Action failed safely: "+(e.message?:"unknown error") }
  }
  private fun open(t:String):String {
-  val l=t.lowercase(Locale.getDefault())
+  val raw=t.trim()
+  val l=raw.lowercase(Locale.getDefault())
   try {
-   val pkg=when { l.contains("snapchat")->"com.snapchat.android"; l.contains("whatsapp")->"com.whatsapp"; l.contains("youtube")->"com.google.android.youtube"; l.contains("chrome")->"com.android.chrome"; l.contains("telegram")->"org.telegram.messenger"; l.contains("instagram")->"com.instagram.android"; else->null }
-   if(pkg!=null){ val i=c.packageManager.getLaunchIntentForPackage(pkg); if(i!=null){c.startActivity(i);return "Opening "+t+"."}; return t+" is not installed." }
-   when { l.contains("camera")->c.startActivity(Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)); l.contains("phone")||l.contains("dialer")->c.startActivity(Intent(Intent.ACTION_DIAL)); l.contains("settings")->c.startActivity(Intent(Settings.ACTION_SETTINGS)); else->return "I don't know how to open "+t+" yet." }
-   return "Opening "+t+"."
-  }catch(e:Exception){return "I couldn't open "+t+"."}
+   val known=when {
+    l.contains("snapchat")->listOf("com.snapchat.android")
+    l.contains("whatsapp")->listOf("com.whatsapp","com.whatsapp.w4b")
+    l.contains("youtube")->listOf("com.google.android.youtube","com.google.android.apps.youtube.music")
+    l.contains("chrome")->listOf("com.android.chrome")
+    l.contains("telegram")->listOf("org.telegram.messenger")
+    l.contains("instagram")->listOf("com.instagram.android")
+    l.contains("facebook")->listOf("com.facebook.katana")
+    l.contains("spotify")->listOf("com.spotify.music")
+    l.contains("gmail")->listOf("com.google.android.gm")
+    l.contains("maps")->listOf("com.google.android.apps.maps")
+    else->emptyList()
+   }
+   if(l.contains("camera")){c.startActivity(Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE));return "Opening Camera."}
+   if(l.contains("phone")||l.contains("dialer")){c.startActivity(Intent(Intent.ACTION_DIAL));return "Opening Phone."}
+   if(l.contains("settings")){c.startActivity(Intent(Settings.ACTION_SETTINGS));return "Opening Settings."}
+
+   // First try known package IDs. Some Android builds expose the launcher differently.
+   for(pkg in known){
+    val launch=c.packageManager.getLaunchIntentForPackage(pkg)
+    if(launch!=null){c.startActivity(launch);return "Opening $raw."}
+   }
+
+   // Then resolve the installed launcher app by its visible label.
+   val wanted=when {
+    l.contains("snapchat")->"snapchat"
+    l.contains("whatsapp")->"whatsapp"
+    l.contains("youtube")->"youtube"
+    l.contains("chrome")->"chrome"
+    l.contains("telegram")->"telegram"
+    l.contains("instagram")->"instagram"
+    l.contains("facebook")->"facebook"
+    l.contains("spotify")->"spotify"
+    l.contains("gmail")->"gmail"
+    l.contains("maps")->"maps"
+    else->raw.split(Regex("\\s+")).firstOrNull().orEmpty()
+   }
+   val launcherIntent=Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+   val matches=c.packageManager.queryIntentActivities(launcherIntent,PackageManager.MATCH_ALL)
+   val hit=matches.firstOrNull{info->
+    val label=info.loadLabel(c.packageManager).toString().lowercase(Locale.getDefault())
+    label==wanted || label.contains(wanted)
+   }
+   if(hit!=null){
+    val launch=Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(hit.activityInfo.packageName).setClassName(hit.activityInfo.packageName,hit.activityInfo.name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    c.startActivity(launch)
+    return "Opening $raw."
+   }
+   return "$raw is not installed or no launcher activity was found."
+  }catch(e:Exception){
+   return "I couldn't open $raw."
+  }
  }
  private fun dial(n0:String):String { val n=n0.filter{it.isDigit()||it=='+'}; if(n.isBlank())return "Please provide a phone number."; c.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:"+n))); return "Opening the dialer for "+n+"." }
  private fun sms(s:String):String { val m=Regex("([+0-9][+0-9 -]{5,})\\s+(.+)").find(s)?:return "Say: message 9876543210 hello."; val n=m.groupValues[1].replace(" ",""); val body=m.groupValues[2]; c.startActivity(Intent(Intent.ACTION_SENDTO).apply{data=Uri.parse("smsto:"+n);putExtra("sms_body",body)}); return "Opening SMS with your message ready." }
