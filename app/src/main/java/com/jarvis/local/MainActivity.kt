@@ -149,34 +149,68 @@ class JarvisEngine(private val c:Context) {
 }
 
 class MainActivity:ComponentActivity(),TextToSpeech.OnInitListener {
- private var tts:TextToSpeech?=null; private var sr:SpeechRecognizer?=null; private var pendingListen=false; private var startupPermissions=true; private var listenResult:((String)->Unit)?=null; private var listenStatus:((String)->Unit)?=null
- private val mic=registerForActivityResult(ActivityResultContracts.RequestPermission()){granted->if(granted&&pendingListen){pendingListen=false;startListening(listenResult?:{},listenStatus?:{})}else if(!granted){pendingListen=false;listenStatus?.invoke("Microphone permission denied.");Toast.makeText(this,"Allow microphone permission to use Voice.",Toast.LENGTH_LONG).show()}}
- private val camera=registerForActivityResult(ActivityResultContracts.RequestPermission()){ }
- private val notifications=registerForActivityResult(ActivityResultContracts.RequestPermission()){ }
+ private var tts:TextToSpeech?=null
+ private var sr:SpeechRecognizer?=null
+ private var pendingListen=false
+ private var startupPermissions=true
+ private var listenResult:((String)->Unit)?=null
+ private var listenStatus:((String)->Unit)?=null
+
+ private val mic=registerForActivityResult(ActivityResultContracts.RequestPermission()){granted->
+  if(pendingListen){
+   if(granted){pendingListen=false;startListening(listenResult?:{},listenStatus?:{})}
+   else{pendingListen=false;listenStatus?.invoke("Microphone permission denied.");Toast.makeText(this,"Microphone permission is required for Voice.",Toast.LENGTH_LONG).show()}
+  }else if(startupPermissions){if(!granted)Toast.makeText(this,"Microphone skipped. Voice can be enabled later.",Toast.LENGTH_SHORT).show();window.decorView.post{requestStartupCamera()}}
+ }
+ private val camera=registerForActivityResult(ActivityResultContracts.RequestPermission()){granted->
+  if(!granted)Toast.makeText(this,"Camera skipped. Flashlight can be enabled later.",Toast.LENGTH_SHORT).show()
+  if(startupPermissions)window.decorView.post{requestStartupNotifications()}
+ }
+ private val notifications=registerForActivityResult(ActivityResultContracts.RequestPermission()){
+  startupPermissions=false
+  Toast.makeText(this,"JARVIS setup complete.",Toast.LENGTH_SHORT).show()
+ }
+
  override fun onCreate(b:Bundle?){
   super.onCreate(b)
   tts=TextToSpeech(this,this)
   setContent{JarvisApp(::speak,::listen,{requestMic()},{requestCamera()},{requestNotifications()},{torch()},has(Manifest.permission.RECORD_AUDIO),has(Manifest.permission.CAMERA),::overlay)}
-  if(!has(Manifest.permission.RECORD_AUDIO)) requestMic()
+  window.decorView.post{requestStartupPermission()}
  }
  private fun has(x:String)=ContextCompat.checkSelfPermission(this,x)==PackageManager.PERMISSION_GRANTED
  private fun requestMic(){if(!has(Manifest.permission.RECORD_AUDIO))mic.launch(Manifest.permission.RECORD_AUDIO)}
  private fun requestCamera(){if(!has(Manifest.permission.CAMERA))camera.launch(Manifest.permission.CAMERA)}
  private fun requestNotifications(){if(android.os.Build.VERSION.SDK_INT>=33&&!has(Manifest.permission.POST_NOTIFICATIONS))notifications.launch(Manifest.permission.POST_NOTIFICATIONS)}
+ private fun requestStartupPermission(){
+  if(!startupPermissions)return
+  when{
+   !has(Manifest.permission.RECORD_AUDIO)->mic.launch(Manifest.permission.RECORD_AUDIO)
+   !has(Manifest.permission.CAMERA)->requestStartupCamera()
+   android.os.Build.VERSION.SDK_INT>=33&&!has(Manifest.permission.POST_NOTIFICATIONS)->requestStartupNotifications()
+   else->startupPermissions=false
+  }
+ }
+ private fun requestStartupCamera(){if(!has(Manifest.permission.CAMERA))camera.launch(Manifest.permission.CAMERA)else requestStartupNotifications()}
+ private fun requestStartupNotifications(){if(android.os.Build.VERSION.SDK_INT>=33&&!has(Manifest.permission.POST_NOTIFICATIONS))notifications.launch(Manifest.permission.POST_NOTIFICATIONS)else startupPermissions=false}
  private fun overlay(){startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+packageName)))}
  private fun listen(result:(String)->Unit,status:(String)->Unit){
-  listenResult=result; listenStatus=status
+  listenResult=result;listenStatus=status
   if(!has(Manifest.permission.RECORD_AUDIO)){pendingListen=true;mic.launch(Manifest.permission.RECORD_AUDIO);status("Allow microphone permission…");return}
   startListening(result,status)
  }
  private fun startListening(result:(String)->Unit,status:(String)->Unit){
   if(!SpeechRecognizer.isRecognitionAvailable(this)){status("Voice recognition is unavailable on this phone.");return}
-  sr?.cancel(); sr?.destroy(); sr=SpeechRecognizer.createSpeechRecognizer(this)
+  sr?.cancel();sr?.destroy();sr=SpeechRecognizer.createSpeechRecognizer(this)
   sr!!.setRecognitionListener(object:RecognitionListener{
-   override fun onReadyForSpeech(p:Bundle?){status("Listening…")}; override fun onBeginningOfSpeech(){status("Hearing you…")}; override fun onEndOfSpeech(){status("Processing…")}
+   override fun onReadyForSpeech(p:Bundle?){status("Listening…")}
+   override fun onBeginningOfSpeech(){status("Hearing you…")}
+   override fun onEndOfSpeech(){status("Processing…")}
    override fun onError(e:Int){status(when(e){SpeechRecognizer.ERROR_NO_MATCH->"I didn’t catch that. Try again.";SpeechRecognizer.ERROR_SPEECH_TIMEOUT->"I didn’t hear anything. Try again.";SpeechRecognizer.ERROR_AUDIO->"Microphone audio error. Check microphone access.";SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS->"Microphone permission is required.";SpeechRecognizer.ERROR_NETWORK,SpeechRecognizer.ERROR_NETWORK_TIMEOUT->"Voice service needs a network connection.";SpeechRecognizer.ERROR_RECOGNIZER_BUSY->"Voice service is busy. Try again.";else->"Voice error ($e). Tap Voice to retry."})}
    override fun onResults(b:Bundle?){val x=b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull();if(x.isNullOrBlank())status("I didn’t catch that. Try again.")else result(x);status("Ready")}
-   override fun onPartialResults(b:Bundle?){ }; override fun onBufferReceived(b:ByteArray?){ }; override fun onRmsChanged(v:Float){}; override fun onEvent(t:Int,b:Bundle?){ }
+   override fun onPartialResults(b:Bundle?){}
+   override fun onBufferReceived(b:ByteArray?){}
+   override fun onRmsChanged(v:Float){}
+   override fun onEvent(t:Int,b:Bundle?){}
   })
   sr!!.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply{putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);putExtra(RecognizerIntent.EXTRA_LANGUAGE,Locale.getDefault().toLanguageTag());putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,true);putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,3);putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE,false)})
   status("Starting voice…")
