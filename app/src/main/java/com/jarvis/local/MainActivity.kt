@@ -97,7 +97,12 @@ class MainActivity:ComponentActivity(),TextToSpeech.OnInitListener {
  private val mic=registerForActivityResult(ActivityResultContracts.RequestPermission()){ }
  private val camera=registerForActivityResult(ActivityResultContracts.RequestPermission()){ }
  private val notifications=registerForActivityResult(ActivityResultContracts.RequestPermission()){ }
- override fun onCreate(b:Bundle?){\n  super.onCreate(b)\n  tts=TextToSpeech(this,this)\n  setContent{JarvisApp(::speak,::listen,{requestMic()},{requestCamera()},{requestNotifications()},{torch()},has(Manifest.permission.RECORD_AUDIO),has(Manifest.permission.CAMERA),::overlay)}\n  if(!has(Manifest.permission.RECORD_AUDIO)) requestMic()\n }
+ override fun onCreate(b:Bundle?){
+  super.onCreate(b)
+  tts=TextToSpeech(this,this)
+  setContent{JarvisApp(::speak,::listen,{requestMic()},{requestCamera()},{requestNotifications()},{torch()},has(Manifest.permission.RECORD_AUDIO),has(Manifest.permission.CAMERA),::overlay)}
+  if(!has(Manifest.permission.RECORD_AUDIO)) requestMic()
+ }
  private fun has(x:String)=ContextCompat.checkSelfPermission(this,x)==PackageManager.PERMISSION_GRANTED
  private fun requestMic(){if(!has(Manifest.permission.RECORD_AUDIO))mic.launch(Manifest.permission.RECORD_AUDIO)}
  private fun requestCamera(){if(!has(Manifest.permission.CAMERA))camera.launch(Manifest.permission.CAMERA)}
