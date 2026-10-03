@@ -47,8 +47,8 @@ jobs:
           fi
           if [[ "${USE_PERSISTENT}" != "true" ]]; then
             echo "Creating an ephemeral release key for this build."
-            keytool -genkeypair -v -keystore "${RUNNER_TEMP}/jarvis-release.jks" -storepass "jarvis-temp-store" -alias "jarvis-release" -keypass "jarvis-temp-key" -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=JARVIS AI,O=JARVIS,C=IN"
-            RELEASE_STORE_PASSWORD="jarvis-temp-store"; RELEASE_KEY_ALIAS="jarvis-release"; RELEASE_KEY_PASSWORD="jarvis-temp-key"
+            keytool -genkeypair -v -keystore "${RUNNER_TEMP}/jarvis-release.jks" -storepass "jarvis-temp-store" -alias "jarvis-release" -keypass "jarvis-temp-store" -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=JARVIS AI,O=JARVIS,C=IN"
+            RELEASE_STORE_PASSWORD="jarvis-temp-store"; RELEASE_KEY_ALIAS="jarvis-release"; RELEASE_KEY_PASSWORD="jarvis-temp-store"
           fi
           echo "JARVIS_KEYSTORE_PATH=${RUNNER_TEMP}/jarvis-release.jks" >> "${GITHUB_ENV}"
           echo "JARVIS_KEYSTORE_PASSWORD=${RELEASE_STORE_PASSWORD}" >> "${GITHUB_ENV}"
