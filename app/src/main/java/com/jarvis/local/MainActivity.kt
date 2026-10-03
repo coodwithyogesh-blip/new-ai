@@ -97,7 +97,7 @@ class MainActivity:ComponentActivity(),TextToSpeech.OnInitListener {
  private val mic=registerForActivityResult(ActivityResultContracts.RequestPermission()){ }
  private val camera=registerForActivityResult(ActivityResultContracts.RequestPermission()){ }
  private val notifications=registerForActivityResult(ActivityResultContracts.RequestPermission()){ }
- override fun onCreate(b:Bundle?){super.onCreate(b);tts=TextToSpeech(this,this);setContent{JarvisApp(::speak,::listen,{requestMic()},{requestCamera()},{requestNotifications()},{torch()},has(Manifest.permission.RECORD_AUDIO),has(Manifest.permission.CAMERA),::overlay)}}; if(!has(Manifest.permission.RECORD_AUDIO)) requestMic()
+ override fun onCreate(b:Bundle?){\n  super.onCreate(b)\n  tts=TextToSpeech(this,this)\n  setContent{JarvisApp(::speak,::listen,{requestMic()},{requestCamera()},{requestNotifications()},{torch()},has(Manifest.permission.RECORD_AUDIO),has(Manifest.permission.CAMERA),::overlay)}\n  if(!has(Manifest.permission.RECORD_AUDIO)) requestMic()\n }
  private fun has(x:String)=ContextCompat.checkSelfPermission(this,x)==PackageManager.PERMISSION_GRANTED
  private fun requestMic(){if(!has(Manifest.permission.RECORD_AUDIO))mic.launch(Manifest.permission.RECORD_AUDIO)}
  private fun requestCamera(){if(!has(Manifest.permission.CAMERA))camera.launch(Manifest.permission.CAMERA)}
@@ -110,7 +110,7 @@ class MainActivity:ComponentActivity(),TextToSpeech.OnInitListener {
   sr!!.setRecognitionListener(object:RecognitionListener{
    override fun onReadyForSpeech(p:Bundle?){status("Listening…")}; override fun onBeginningOfSpeech(){status("Listening…")}; override fun onEndOfSpeech(){status("Processing…")}
    override fun onError(e:Int){status("Voice error. Tap Voice and try again.")}; override fun onResults(b:Bundle?){b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let(result);status("Ready")}
-   override fun onPartialResults(b:Bundle?){ }; override fun onBufferReceived(b:ByteArray?){ }; override fun onRmsChanged(v:Float){}; override fun onEvent(t:Int,b:Bundle?){ }; override fun onSegmentResults(b:Bundle?){ }; override fun onEndOfSegmentedSession(){}
+   override fun onPartialResults(b:Bundle?){ }; override fun onBufferReceived(b:ByteArray?){ }; override fun onRmsChanged(v:Float){}; override fun onEvent(t:Int,b:Bundle?){ }
   })
   sr!!.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply{putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);putExtra(RecognizerIntent.EXTRA_LANGUAGE,Locale.getDefault());putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE,true)})
  }
