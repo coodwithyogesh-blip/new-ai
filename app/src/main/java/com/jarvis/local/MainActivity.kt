@@ -128,6 +128,7 @@ class MainActivity:ComponentActivity(),TextToSpeech.OnInitListener {
  override fun onDestroy(){sr?.destroy();tts?.stop();tts?.shutdown();super.onDestroy()}
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable fun JarvisApp(
  speak:(String)->Unit, listen:((String)->Unit,(String)->Unit)->Unit,
  micReq:()->Unit,cameraReq:()->Unit,notifReq:()->Unit,torch:()->Unit,
