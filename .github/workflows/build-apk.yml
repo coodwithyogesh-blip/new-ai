@@ -33,11 +33,20 @@ jobs:
           RELEASE_KEY_PASSWORD: ${{ secrets.JARVIS_RELEASE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          USE_PERSISTENT=false
           if [[ -n "${RELEASE_KEYSTORE_B64:-}" && -n "${RELEASE_STORE_PASSWORD:-}" && -n "${RELEASE_KEY_ALIAS:-}" && -n "${RELEASE_KEY_PASSWORD:-}" ]]; then
             echo "${RELEASE_KEYSTORE_B64}" | base64 --decode > "${RUNNER_TEMP}/jarvis-release.jks"
-            echo "Using configured persistent release keystore."
-          else
-            echo "No persistent release keystore configured; creating an ephemeral release key for this build."
+            echo "Validating configured release keystore..."
+            if keytool -list -v -keystore "${RUNNER_TEMP}/jarvis-release.jks" -storepass "${RELEASE_STORE_PASSWORD}" -alias "${RELEASE_KEY_ALIAS}" >/dev/null 2>&1 && keytool -certreq -keystore "${RUNNER_TEMP}/jarvis-release.jks" -storepass "${RELEASE_STORE_PASSWORD}" -keypass "${RELEASE_KEY_PASSWORD}" -alias "${RELEASE_KEY_ALIAS}" -file "${RUNNER_TEMP}/jarvis-release-check.csr" >/dev/null 2>&1; then
+              USE_PERSISTENT=true
+              echo "Configured release keystore and key credentials are valid."
+            else
+              echo "::warning::Configured release signing credentials are invalid or inconsistent. Falling back to a fresh ephemeral release key so the build can complete."
+              rm -f "${RUNNER_TEMP}/jarvis-release.jks" "${RUNNER_TEMP}/jarvis-release-check.csr"
+            fi
+          fi
+          if [[ "${USE_PERSISTENT}" != "true" ]]; then
+            echo "Creating an ephemeral release key for this build."
             keytool -genkeypair -v -keystore "${RUNNER_TEMP}/jarvis-release.jks" -storepass "jarvis-temp-store" -alias "jarvis-release" -keypass "jarvis-temp-key" -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=JARVIS AI,O=JARVIS,C=IN"
             RELEASE_STORE_PASSWORD="jarvis-temp-store"; RELEASE_KEY_ALIAS="jarvis-release"; RELEASE_KEY_PASSWORD="jarvis-temp-key"
           fi
