@@ -80,7 +80,21 @@ class JarvisEngine(private val c:Context) {
   val raw=t.trim()
   val l=raw.lowercase(Locale.getDefault())
   try {
-   val known=when {
+   // "open youtube <query>" launches YouTube and searches the requested phrase.
+   if(l.startsWith("youtube search ") || l.startsWith("open youtube search ")){
+    val query=raw.substringAfter("search ", "").trim()
+    c.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query="+Uri.encode(query))))
+    return "Searching YouTube for $query."
+   }
+   if(l.startsWith("open youtube ") && l.length>13){
+    val query=raw.substringAfter("open youtube ", "").trim()
+    if(query.isNotBlank()){
+     c.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query="+Uri.encode(query))))
+     return "Opening YouTube and searching for $query."
+    }
+   }
+
+   val packages=when{
     l.contains("snapchat")->listOf("com.snapchat.android")
     l.contains("whatsapp")->listOf("com.whatsapp","com.whatsapp.w4b")
     l.contains("youtube")->listOf("com.google.android.youtube","com.google.android.apps.youtube.music")
@@ -93,46 +107,39 @@ class JarvisEngine(private val c:Context) {
     l.contains("maps")->listOf("com.google.android.apps.maps")
     else->emptyList()
    }
+
    if(l.contains("camera")){c.startActivity(Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE));return "Opening Camera."}
    if(l.contains("phone")||l.contains("dialer")){c.startActivity(Intent(Intent.ACTION_DIAL));return "Opening Phone."}
    if(l.contains("settings")){c.startActivity(Intent(Settings.ACTION_SETTINGS));return "Opening Settings."}
 
-   // First try known package IDs. Some Android builds expose the launcher differently.
-   for(pkg in known){
-    val launch=c.packageManager.getLaunchIntentForPackage(pkg)
-    if(launch!=null){c.startActivity(launch);return "Opening $raw."}
+   for(pkg in packages){
+    if(android.os.Build.VERSION.SDK_INT>=33){
+     try{ c.startIntentSender(c.packageManager.getLaunchIntentSenderForPackage(pkg),null,0,0,0); return "Opening $raw." }catch(_:Exception){}
+    }
+    c.packageManager.getLaunchIntentForPackage(pkg)?.let{c.startActivity(it);return "Opening $raw."}
    }
 
-   // Then resolve the installed launcher app by its visible label.
-   val wanted=when {
-    l.contains("snapchat")->"snapchat"
-    l.contains("whatsapp")->"whatsapp"
-    l.contains("youtube")->"youtube"
-    l.contains("chrome")->"chrome"
-    l.contains("telegram")->"telegram"
-    l.contains("instagram")->"instagram"
-    l.contains("facebook")->"facebook"
-    l.contains("spotify")->"spotify"
-    l.contains("gmail")->"gmail"
-    l.contains("maps")->"maps"
+   val wanted=when{
+    l.contains("snapchat")->"snapchat";l.contains("whatsapp")->"whatsapp";l.contains("youtube")->"youtube"
+    l.contains("chrome")->"chrome";l.contains("telegram")->"telegram";l.contains("instagram")->"instagram"
+    l.contains("facebook")->"facebook";l.contains("spotify")->"spotify";l.contains("gmail")->"gmail";l.contains("maps")->"maps"
     else->raw.split(Regex("\\s+")).firstOrNull().orEmpty()
    }
-   val launcherIntent=Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-   val matches=c.packageManager.queryIntentActivities(launcherIntent,PackageManager.MATCH_ALL)
-   val hit=matches.firstOrNull{info->
+   val launcher=Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+   val hit=c.packageManager.queryIntentActivities(launcher,PackageManager.MATCH_ALL).firstOrNull{info->
     val label=info.loadLabel(c.packageManager).toString().lowercase(Locale.getDefault())
     label==wanted || label.contains(wanted)
    }
    if(hit!=null){
-    val launch=Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(hit.activityInfo.packageName).setClassName(hit.activityInfo.packageName,hit.activityInfo.name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    c.startActivity(launch)
-    return "Opening $raw."
+    val launch=Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+      .setComponent(android.content.ComponentName(hit.activityInfo.packageName,hit.activityInfo.name))
+      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    c.startActivity(launch); return "Opening $raw."
    }
-   return "$raw is not installed or no launcher activity was found."
-  }catch(e:Exception){
-   return "I couldn't open $raw."
-  }
+   return "$raw is not available on this device."
+  }catch(_:Exception){ return "I couldn't open $raw." }
  }
+
  private fun dial(n0:String):String { val n=n0.filter{it.isDigit()||it=='+'}; if(n.isBlank())return "Please provide a phone number."; c.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:"+n))); return "Opening the dialer for "+n+"." }
  private fun sms(s:String):String { val m=Regex("([+0-9][+0-9 -]{5,})\\s+(.+)").find(s)?:return "Say: message 9876543210 hello."; val n=m.groupValues[1].replace(" ",""); val body=m.groupValues[2]; c.startActivity(Intent(Intent.ACTION_SENDTO).apply{data=Uri.parse("smsto:"+n);putExtra("sms_body",body)}); return "Opening SMS with your message ready." }
  private fun search(q:String):String { if(q.isBlank())return "Tell me what to search."; c.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://www.google.com/search?q="+Uri.encode(q)))); return "Searching for "+q+"." }
@@ -142,7 +149,7 @@ class JarvisEngine(private val c:Context) {
 }
 
 class MainActivity:ComponentActivity(),TextToSpeech.OnInitListener {
- private var tts:TextToSpeech?=null; private var sr:SpeechRecognizer?=null; private var pendingListen=false; private var listenResult:((String)->Unit)?=null; private var listenStatus:((String)->Unit)?=null
+ private var tts:TextToSpeech?=null; private var sr:SpeechRecognizer?=null; private var pendingListen=false; private var startupPermissions=true; private var listenResult:((String)->Unit)?=null; private var listenStatus:((String)->Unit)?=null
  private val mic=registerForActivityResult(ActivityResultContracts.RequestPermission()){granted->if(granted&&pendingListen){pendingListen=false;startListening(listenResult?:{},listenStatus?:{})}else if(!granted){pendingListen=false;listenStatus?.invoke("Microphone permission denied.");Toast.makeText(this,"Allow microphone permission to use Voice.",Toast.LENGTH_LONG).show()}}
  private val camera=registerForActivityResult(ActivityResultContracts.RequestPermission()){ }
  private val notifications=registerForActivityResult(ActivityResultContracts.RequestPermission()){ }
