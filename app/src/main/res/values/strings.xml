@@ -1,2 +1,3 @@
 <resources><string name="app_name">JARVIS AI</string>    <!-- JARVIS build verification marker -->
+ <string name="accessibility_service_description">Allows JARVIS to carry out explicit user commands such as tapping visible controls, typing text, pressing Send, navigating Back/Home, and swiping in supported apps.</string>
 </resources>
