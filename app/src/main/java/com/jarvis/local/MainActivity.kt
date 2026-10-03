@@ -59,6 +59,16 @@ class JarvisEngine(private val c:Context) {
     l.startsWith("remember ") -> { val m=q.substringAfter("remember ").trim(); p.edit().putString("memory",m).apply(); "Remembered: "+m }
     l.contains("what do you remember")||l.contains("my memory") -> "I remember: "+(p.getString("memory",null)?:"nothing yet")
     l.contains("forget memory") -> { p.edit().remove("memory").apply(); "Memory cleared." }
+    l.startsWith("tap ") || l.startsWith("click ") -> universal("tap", q.substringAfter(" ").trim())
+    l.startsWith("type ") -> universal("type", q.substringAfter(" ").trim())
+    l == "send" || l == "press send" -> universal("send", "send")
+    l == "back" || l == "go back" -> universal("back")
+    l == "home" || l == "go home" -> universal("home")
+    l == "recents" || l == "recent apps" -> universal("recents")
+    l.contains("swipe up") -> universal("swipe_up")
+    l.contains("swipe down") -> universal("swipe_down")
+    l.contains("swipe left") -> universal("swipe_left")
+    l.contains("swipe right") -> universal("swipe_right")
     l.startsWith("open ") -> open(q.substringAfter("open ").trim())
     l.startsWith("call ")||l.startsWith("dial ") -> dial(q.substringAfter(" ").trim())
     l.startsWith("message ")||l.startsWith("sms ")||l.startsWith("text ") -> sms(q.substringAfter(" ").trim())
@@ -140,6 +150,20 @@ class JarvisEngine(private val c:Context) {
   }catch(_:Exception){ return "I couldn't open $raw." }
  }
 
+ private fun universal(action:String,value:String=""):String {
+  if(!JarvisAccessibilityService.isEnabled()) return "Universal App Control is disabled. Enable JARVIS Accessibility first."
+  JarvisAccessibilityService.dispatch(c,action,value)
+  return when(action){
+   "tap"->"Tapping $value."
+   "type"->"Typing the requested text."
+   "send"->"Pressing Send."
+   "back"->"Going back."
+   "home"->"Going Home."
+   "recents"->"Opening recent apps."
+   else->"Performing $action."
+  }
+ }
+ 
  private fun dial(n0:String):String { val n=n0.filter{it.isDigit()||it=='+'}; if(n.isBlank())return "Please provide a phone number."; c.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:"+n))); return "Opening the dialer for "+n+"." }
  private fun sms(s:String):String { val m=Regex("([+0-9][+0-9 -]{5,})\\s+(.+)").find(s)?:return "Say: message 9876543210 hello."; val n=m.groupValues[1].replace(" ",""); val body=m.groupValues[2]; c.startActivity(Intent(Intent.ACTION_SENDTO).apply{data=Uri.parse("smsto:"+n);putExtra("sms_body",body)}); return "Opening SMS with your message ready." }
  private fun search(q:String):String { if(q.isBlank())return "Tell me what to search."; c.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://www.google.com/search?q="+Uri.encode(q)))); return "Searching for "+q+"." }
@@ -154,6 +178,8 @@ class MainActivity:ComponentActivity(),TextToSpeech.OnInitListener {
  private var pendingListen=false
  private var startupPermissions=true
  private var overlaySetupOpened=false
+ private var accessibilitySetupOpened=false
+ private var accessibilityDisclosureShown=false
  private var listenResult:((String)->Unit)?=null
  private var listenStatus:((String)->Unit)?=null
 
@@ -174,7 +200,7 @@ class MainActivity:ComponentActivity(),TextToSpeech.OnInitListener {
  override fun onCreate(b:Bundle?){
   super.onCreate(b)
   tts=TextToSpeech(this,this)
-  setContent{JarvisApp(::speak,::listen,{requestMic()},{requestCamera()},{requestNotifications()},{torch()},has(Manifest.permission.RECORD_AUDIO),has(Manifest.permission.CAMERA),has(Manifest.permission.POST_NOTIFICATIONS),Settings.canDrawOverlays(this),::overlay)}
+  setContent{JarvisApp(::speak,::listen,{requestMic()},{requestCamera()},{requestNotifications()},{torch()},has(Manifest.permission.RECORD_AUDIO),has(Manifest.permission.CAMERA),has(Manifest.permission.POST_NOTIFICATIONS),Settings.canDrawOverlays(this),JarvisAccessibilityService.isEnabled(),::overlayAccessibility,::overlay)}
   window.decorView.post{requestStartupPermission()}
  }
  private fun has(x:String)=ContextCompat.checkSelfPermission(this,x)==PackageManager.PERMISSION_GRANTED
@@ -197,8 +223,30 @@ class MainActivity:ComponentActivity(),TextToSpeech.OnInitListener {
    Toast.makeText(this,"Please allow JARVIS to display over other apps.",Toast.LENGTH_LONG).show()
    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+packageName)))
   }else{
+   openAccessibilityIfNeeded()
+  }
+ }
+ private fun openAccessibilityIfNeeded(){
+  if(!startupPermissions || JarvisAccessibilityService.isEnabled()) {
    startupPermissions=false
    Toast.makeText(this,"JARVIS setup complete.",Toast.LENGTH_SHORT).show()
+   return
+  }
+  if(accessibilitySetupOpened) return
+  if(!accessibilityDisclosureShown){
+   accessibilityDisclosureShown=true
+   android.app.AlertDialog.Builder(this)
+    .setTitle("Universal App Control")
+    .setMessage("JARVIS can use Android Accessibility to follow your explicit commands across supported app interfaces—for example tap a visible button, type text, press Send, go Back/Home, or swipe. The service can read visible accessibility UI content while enabled. Android and individual apps may block some secure screens.")
+    .setPositiveButton("Continue") { _, _ ->
+      accessibilitySetupOpened=true
+      startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }
+    .setNegativeButton("Not now") { _, _ ->
+      startupPermissions=false
+      Toast.makeText(this,"Universal App Control can be enabled later from Settings.",Toast.LENGTH_SHORT).show()
+    }
+    .show()
   }
  }
  override fun onResume(){
@@ -207,9 +255,19 @@ class MainActivity:ComponentActivity(),TextToSpeech.OnInitListener {
    overlaySetupOpened=false
    if(startupPermissions)openOverlayIfNeeded()
   }
+  if(accessibilitySetupOpened){
+   accessibilitySetupOpened=false
+   startupPermissions=false
+   Toast.makeText(this,if(JarvisAccessibilityService.isEnabled())"Universal App Control enabled." else "Accessibility not enabled. You can enable it later.",Toast.LENGTH_SHORT).show()
+  }
  }
  private fun requestStartupCamera(){if(!has(Manifest.permission.CAMERA))camera.launch(Manifest.permission.CAMERA)else requestStartupNotifications()}
  private fun requestStartupNotifications(){if(android.os.Build.VERSION.SDK_INT>=33&&!has(Manifest.permission.POST_NOTIFICATIONS))notifications.launch(Manifest.permission.POST_NOTIFICATIONS)else openOverlayIfNeeded()}
+ private fun overlayAccessibility(){
+  if(JarvisAccessibilityService.isEnabled()) return
+  accessibilitySetupOpened=true
+  startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+ }
  private fun overlay(){startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+packageName)))}
  private fun listen(result:(String)->Unit,status:(String)->Unit){
   listenResult=result;listenStatus=status
@@ -246,7 +304,7 @@ class MainActivity:ComponentActivity(),TextToSpeech.OnInitListener {
 @Composable fun JarvisApp(
  speak:(String)->Unit, listen:((String)->Unit,(String)->Unit)->Unit,
  micReq:()->Unit,cameraReq:()->Unit,notifReq:()->Unit,torch:()->Unit,
- micOk:Boolean,cameraOk:Boolean,notifOk:Boolean,overlayOk:Boolean,overlay:()->Unit){
+ micOk:Boolean,cameraOk:Boolean,notifOk:Boolean,overlayOk:Boolean,accessibilityOk:Boolean,accessibility:()->Unit,overlay:()->Unit){
  val context=LocalContext.current;val engine=remember{JarvisEngine(context)};val msgs=remember{mutableStateListOf(Message(true,"JARVIS core online. Say a command or type one below."))};var input by remember{mutableStateOf("")};var status by remember{mutableStateOf("Ready")};var settings by remember{mutableStateOf(false)}
  fun run(q:String){if(q.isBlank())return;msgs.add(Message(false,q));val l=q.lowercase(Locale.getDefault());if(l.contains("flashlight")||l.contains("flash light")||l.contains("torch")||l.contains("turn on light")||l.contains("turn off light")){torch();val r="Flashlight toggled.";msgs.add(Message(true,r));speak(r)}else{val r=engine.handle(q);msgs.add(Message(true,r));speak(r)};input=""}
  MaterialTheme(colorScheme=darkColorScheme(primary=Color(0xFF7C5CFF),secondary=Color(0xFF39C8FF),background=Color(0xFF060811),surface=Color(0xFF101725))){
@@ -256,7 +314,7 @@ class MainActivity:ComponentActivity(),TextToSpeech.OnInitListener {
    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){AssistChip(onClick={listen(::run){status=it}},label={Text("Voice")},leadingIcon={Icon(Icons.Default.Mic,null)});AssistChip(onClick=torch,label={Text("Flashlight")});AssistChip(onClick={ {run("what can you do")} },label={Text("Help")});AssistChip(onClick={ {run("what time is it")} },label={Text("Time")})}
    Row(Modifier.fillMaxWidth().padding(top=8.dp),verticalAlignment=Alignment.CenterVertically){OutlinedTextField(value=input,onValueChange={input=it},modifier=Modifier.weight(1f),placeholder={Text("Talk to JARVIS…")},singleLine=true,shape=RoundedCornerShape(24.dp));IconButton({run(input)}){Icon(Icons.Default.Send,"Send")}}
   }}
-  if(settings)ModalBottomSheet(onDismissRequest={settings=false}){Column(Modifier.fillMaxWidth().padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){Text("JARVIS Capabilities",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold);Text("Permissions are requested only when a feature needs them.");Perm("Microphone",micOk,micReq);Perm("Camera / Flashlight",cameraOk,cameraReq);Perm("Notifications",notifOk,notifReq);Perm("Floating assistant",overlayOk,overlay);Text("Core device commands do not need an AI API key. Android protected actions may show their own confirmation screen.");Spacer(Modifier.height(20.dp))}}
+  if(settings)ModalBottomSheet(onDismissRequest={settings=false}){Column(Modifier.fillMaxWidth().padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){Text("JARVIS Capabilities",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold);Text("Permissions are requested only when a feature needs them.");Perm("Microphone",micOk,micReq);Perm("Camera / Flashlight",cameraOk,cameraReq);Perm("Notifications",notifOk,notifReq);Perm("Floating assistant",overlayOk,overlay);Perm("Universal App Control",accessibilityOk,accessibility);Text("Universal App Control can act only through the Android Accessibility capability you explicitly enable. It follows direct, deterministic commands such as tap, type, send, back, home and swipe.");Spacer(Modifier.height(20.dp))}}
  }
 }
 @Composable fun Perm(name:String,ok:Boolean,go:()->Unit){Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){Column(Modifier.weight(1f)){Text(name,fontWeight=FontWeight.SemiBold);Text(if(ok)"Enabled" else "Not enabled",color=if(ok)Color(0xFF55D99A)else Color(0xFFFFB454))};Button(onClick=go,enabled=!ok){Text(if(ok)"ON"else"Enable")}}}
